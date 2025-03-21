@@ -1,0 +1,261 @@
+classDiagram
+    class User {
+        -Long id
+        -String username
+        -String password
+        -String email
+        -String phone
+        -String avatar
+        -Boolean isActive
+        -LocalDateTime createdAt
+        -LocalDateTime lastLogin
+        +register(UserDTO) User
+        +login(String, String) String
+        +updateProfile(UserDTO) User
+        +resetPassword(String, String) Boolean
+        +getUserInfo(Long) UserDTO
+    }
+    
+    class UserProfile {
+        -Long id
+        -Long userId
+        -String nickname
+        -String bio
+        -Map preferences
+        -String location
+        -Boolean notification
+        +getProfile(Long) UserProfileDTO
+        +updateProfile(UserProfileDTO) UserProfile
+    }
+    
+    class Group {
+        -Long id
+        -String name
+        -String description
+        -String avatar
+        -Long ownerId
+        -Boolean isPrivate
+        -LocalDateTime createdAt
+        -Integer maxMembers
+        +createGroup(GroupDTO) Group
+        +updateGroup(GroupDTO) Group
+        +deleteGroup(Long) Boolean
+        +getGroupInfo(Long) GroupDTO
+        +getGroupMembers(Long) List~UserDTO~
+    }
+    
+    class GroupMember {
+        -Long id
+        -Long groupId
+        -Long userId
+        -GroupRole role
+        -LocalDateTime joinedAt
+        -LocalDateTime lastRead
+        +addMember(Long, Long, GroupRole) GroupMember
+        +updateMemberRole(Long, Long, GroupRole) GroupMember
+        +removeMember(Long, Long) Boolean
+        +getMembers(Long) List~GroupMemberDTO~
+        +getMemberRole(Long, Long) GroupRole
+    }
+    
+    class Message {
+        -String id
+        -Long groupId
+        -Long senderId
+        -MessageType type
+        -String content
+        -List~Attachment~ attachments
+        -LocalDateTime sentAt
+        -Boolean isDeleted
+        -Boolean isEdited
+        +sendMessage(MessageDTO) Message
+        +editMessage(String, MessageDTO) Message
+        +deleteMessage(String) Boolean
+        +getMessages(Long, PaginationParams) List~MessageDTO~
+        +getMessageById(String) MessageDTO
+    }
+    
+    class Attachment {
+        -String id
+        -String messageId
+        -String fileName
+        -String fileType
+        -Long fileSize
+        -String url
+        -LocalDateTime uploadedAt
+        +uploadAttachment(AttachmentDTO) Attachment
+        +deleteAttachment(String) Boolean
+        +getAttachment(String) AttachmentDTO
+    }
+    
+    class Notification {
+        -String id
+        -Long userId
+        -NotificationType type
+        -String title
+        -String content
+        -Boolean isRead
+        -LocalDateTime createdAt
+        -Map~String, Object~ metadata
+        +createNotification(NotificationDTO) Notification
+        +markAsRead(String) Boolean
+        +getUnreadCount(Long) Integer
+        +getNotifications(Long, PaginationParams) List~NotificationDTO~
+    }
+    
+    class UserController {
+        -UserService userService
+        +register(UserDTO) ResponseEntity
+        +login(LoginDTO) ResponseEntity
+        +getCurrentUser() ResponseEntity
+        +updateUser(UserDTO) ResponseEntity
+        +resetPassword(PasswordResetDTO) ResponseEntity
+    }
+    
+    class GroupController {
+        -GroupService groupService
+        +createGroup(GroupDTO) ResponseEntity
+        +getGroup(Long) ResponseEntity
+        +updateGroup(Long, GroupDTO) ResponseEntity
+        +deleteGroup(Long) ResponseEntity
+        +getGroupMembers(Long) ResponseEntity
+        +addMember(Long, GroupMemberDTO) ResponseEntity
+        +removeMember(Long, Long) ResponseEntity
+    }
+    
+    class MessageController {
+        -MessageService messageService
+        +getMessages(Long, PaginationParams) ResponseEntity
+        +getMessage(String) ResponseEntity
+        +deleteMessage(String) ResponseEntity
+    }
+    
+    class ChatWebSocketController {
+        -MessageService messageService
+        -GroupService groupService
+        +handleConnect(WebSocketSession) void
+        +handleMessage(WebSocketSession, Message) void
+        +sendMessage(String, Message) void
+        +handleDisconnect(WebSocketSession) void
+    }
+    
+    class UserService {
+        -UserRepository userRepository
+        -PasswordEncoder passwordEncoder
+        -JwtTokenProvider tokenProvider
+        +register(UserDTO) User
+        +authenticate(LoginDTO) String
+        +findById(Long) Optional~User~
+        +updateUser(UserDTO) User
+        +resetPassword(PasswordResetDTO) Boolean
+    }
+    
+    class GroupService {
+        -GroupRepository groupRepository
+        -GroupMemberRepository memberRepository
+        -UserService userService
+        +createGroup(GroupDTO, Long) Group
+        +updateGroup(GroupDTO) Group
+        +deleteGroup(Long) Boolean
+        +findById(Long) Optional~Group~
+        +getGroupMembers(Long) List~UserDTO~
+        +addMember(Long, Long, GroupRole) GroupMember
+        +removeMember(Long, Long) Boolean
+        +isGroupMember(Long, Long) Boolean
+    }
+    
+    class MessageService {
+        -MessageRepository messageRepository
+        -GroupService groupService
+        -AttachmentService attachmentService
+        -NotificationService notificationService
+        +saveMessage(MessageDTO) Message
+        +findById(String) Optional~Message~
+        +getGroupMessages(Long, PaginationParams) Page~Message~
+        +deleteMessage(String) Boolean
+        +processAttachments(MessageDTO) List~Attachment~
+    }
+    
+    class NotificationService {
+        -NotificationRepository notificationRepository
+        -WebSocketService webSocketService
+        +createNotification(NotificationDTO) Notification
+        +markAsRead(String) Boolean
+        +getUnreadCount(Long) Integer
+        +getUserNotifications(Long, PaginationParams) Page~Notification~
+        +sendPushNotification(NotificationDTO) void
+    }
+    
+    class WebSocketService {
+        -SimpMessagingTemplate messagingTemplate
+        -SessionRegistry sessionRegistry
+        +sendToUser(Long, Object) void
+        +sendToGroup(Long, Object) void
+        +broadcastMessage(Object) void
+        +getOnlineUsers() Set~Long~
+        +registerSession(Long, String) void
+        +removeSession(String) void
+    }
+    
+    class JwtTokenProvider {
+        -String secretKey
+        -long validityInMs
+        +createToken(Authentication) String
+        +getAuthentication(String) Authentication
+        +validateToken(String) Boolean
+        +getUserIdFromToken(String) Long
+    }
+    
+    class ChatSecurityConfig {
+        -JwtTokenProvider jwtTokenProvider
+        -UserDetailsService userDetailsService
+        +configure(HttpSecurity) void
+        +corsConfigurationSource() CorsConfigurationSource
+        +passwordEncoder() PasswordEncoder
+    }
+    
+    class WebSocketConfig {
+        -JwtTokenProvider jwtTokenProvider
+        +registerStompEndpoints(StompEndpointRegistry) void
+        +configureMessageBroker(MessageBrokerRegistry) void
+        +configureClientInboundChannel(ChannelRegistration) void
+    }
+    
+    class RedisConfig {
+        +redisConnectionFactory() RedisConnectionFactory
+        +redisTemplate() RedisTemplate~String, Object~
+        +cacheManager() RedisCacheManager
+    }
+    
+    %% Relationships
+    User "1" -- "1" UserProfile : has
+    User "1" -- "*" Group : owns
+    User "1" -- "*" GroupMember : has
+    User "1" -- "*" Message : sends
+    User "1" -- "*" Notification : receives
+    
+    Group "1" -- "*" GroupMember : contains
+    Group "1" -- "*" Message : contains
+    
+    Message "1" -- "*" Attachment : has
+    
+    UserController -- UserService : uses
+    GroupController -- GroupService : uses
+    MessageController -- MessageService : uses
+    ChatWebSocketController -- MessageService : uses
+    ChatWebSocketController -- WebSocketService : uses
+    
+    UserService -- User : manages
+    GroupService -- Group : manages
+    GroupService -- GroupMember : manages
+    MessageService -- Message : manages
+    NotificationService -- Notification : manages
+    
+    MessageService -- NotificationService : uses
+    GroupService -- UserService : uses
+    
+    WebSocketService -- JwtTokenProvider : uses
+    UserService -- JwtTokenProvider : uses
+    
+    ChatSecurityConfig -- JwtTokenProvider : configures
+    WebSocketConfig -- JwtTokenProvider : configures

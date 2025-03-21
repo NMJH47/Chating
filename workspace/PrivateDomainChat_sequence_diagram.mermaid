@@ -1,0 +1,137 @@
+sequenceDiagram
+    participant Client as Client (Web/Mobile)
+    participant API as API Gateway
+    participant Auth as AuthController
+    participant UserSvc as UserService
+    participant GroupCtrl as GroupController
+    participant GroupSvc as GroupService
+    participant WSCtrl as WebSocketController
+    participant MsgSvc as MessageService
+    participant Redis as Redis Cache
+    participant RDBMS as PostgreSQL
+    participant NoSQL as MongoDB
+    participant S3 as AWS S3
+    
+    %% 用户注册流程
+    Client->>API: 注册请求 (POST /api/auth/register)
+    API->>Auth: 转发请求
+    Auth->>UserSvc: register(UserDTO)
+    UserSvc->>UserSvc: 验证用户数据
+    UserSvc->>RDBMS: 保存用户信息
+    RDBMS-->>UserSvc: 返回用户ID
+    UserSvc-->>Auth: 返回用户对象
+    Auth-->>API: 返回注册结果
+    API-->>Client: 返回JWT令牌
+    
+    %% 用户登录流程
+    Client->>API: 登录请求 (POST /api/auth/login)
+    API->>Auth: 转发请求
+    Auth->>UserSvc: authenticate(LoginDTO)
+    UserSvc->>RDBMS: 查询用户凭证
+    RDBMS-->>UserSvc: 返回用户信息
+    UserSvc->>UserSvc: 验证密码
+    UserSvc->>UserSvc: 生成JWT令牌
+    UserSvc->>Redis: 存储会话信息
+    UserSvc-->>Auth: 返回JWT令牌
+    Auth-->>API: 返回登录结果
+    API-->>Client: 返回JWT令牌和用户信息
+    
+    %% WebSocket连接建立流程
+    Client->>WSCtrl: 连接WebSocket (CONNECT /ws)
+    WSCtrl->>UserSvc: 验证JWT令牌
+    UserSvc-->>WSCtrl: 认证成功
+    WSCtrl->>Redis: 注册WebSocket会话
+    WSCtrl-->>Client: 连接确认
+    
+    %% 创建群组流程
+    Client->>API: 创建群组请求 (POST /api/groups)
+    API->>GroupCtrl: 转发请求
+    GroupCtrl->>UserSvc: 验证用户权限
+    UserSvc-->>GroupCtrl: 权限验证成功
+    GroupCtrl->>GroupSvc: createGroup(GroupDTO)
+    GroupSvc->>RDBMS: 创建群组记录
+    RDBMS-->>GroupSvc: 返回群组ID
+    GroupSvc->>RDBMS: 创建群组成员记录(创建者为管理员)
+    GroupSvc-->>GroupCtrl: 返回群组对象
+    GroupCtrl-->>API: 返回创建结果
+    API-->>Client: 返回群组信息
+    
+    %% 发送消息流程
+    Client->>WSCtrl: 发送消息 (SEND /app/chat.message)
+    WSCtrl->>GroupSvc: 验证用户是否在群组中
+    GroupSvc->>RDBMS: 查询成员关系
+    RDBMS-->>GroupSvc: 确认成员关系
+    GroupSvc-->>WSCtrl: 验证成功
+    WSCtrl->>MsgSvc: saveMessage(MessageDTO)
+    
+    alt 消息包含附件
+        MsgSvc->>S3: 上传附件
+        S3-->>MsgSvc: 返回文件URL
+    end
+    
+    MsgSvc->>NoSQL: 保存消息记录
+    NoSQL-->>MsgSvc: 确认保存
+    MsgSvc->>Redis: 发布消息到频道
+    MsgSvc-->>WSCtrl: 返回消息对象
+    WSCtrl->>Redis: 获取群成员在线状态
+    Redis-->>WSCtrl: 返回在线成员列表
+    WSCtrl->>WSCtrl: 向在线成员广播消息
+    WSCtrl-->>Client: 发送消息确认
+    WSCtrl-->>Client: 广播消息给群组成员
+    
+    %% 获取群组消息历史
+    Client->>API: 获取消息历史 (GET /api/groups/{id}/messages)
+    API->>GroupCtrl: 转发请求
+    GroupCtrl->>UserSvc: 验证用户权限
+    UserSvc-->>GroupCtrl: 权限验证成功
+    GroupCtrl->>MsgSvc: getGroupMessages(groupId, pagination)
+    MsgSvc->>Redis: 尝试获取缓存消息
+    
+    alt 缓存命中
+        Redis-->>MsgSvc: 返回缓存消息
+    else 缓存未命中
+        MsgSvc->>NoSQL: 查询消息历史
+        NoSQL-->>MsgSvc: 返回消息列表
+        MsgSvc->>Redis: 缓存消息结果
+    end
+    
+    MsgSvc-->>GroupCtrl: 返回消息列表
+    GroupCtrl-->>API: 返回查询结果
+    API-->>Client: 返回消息历史
+    
+    %% 添加群组成员流程
+    Client->>API: 添加成员请求 (POST /api/groups/{id}/members)
+    API->>GroupCtrl: 转发请求
+    GroupCtrl->>GroupSvc: addMember(groupId, userId, role)
+    GroupSvc->>RDBMS: 查询群组信息
+    RDBMS-->>GroupSvc: 返回群组信息
+    GroupSvc->>GroupSvc: 验证权限和成员上限
+    GroupSvc->>RDBMS: 创建成员关系
+    RDBMS-->>GroupSvc: 确认创建
+    GroupSvc->>WSCtrl: 通知群组成员更新
+    GroupSvc-->>GroupCtrl: 返回操作结果
+    GroupCtrl-->>API: 返回请求结果
+    API-->>Client: 返回添加成员结果
+    WSCtrl-->>Client: 发送群组更新通知
+    
+    %% 用户退出登录流程
+    Client->>API: 登出请求 (POST /api/auth/logout)
+    API->>Auth: 转发请求
+    Auth->>UserSvc: logout(userId)
+    UserSvc->>Redis: 移除会话信息
+    UserSvc->>WSCtrl: 关闭WebSocket连接
+    WSCtrl->>Redis: 注销WebSocket会话
+    UserSvc-->>Auth: 确认登出
+    Auth-->>API: 返回登出结果
+    API-->>Client: 确认登出成功
+    
+    %% 系统初始化流程
+    note over API,NoSQL: 系统启动初始化流程
+    API->>Redis: 建立连接
+    API->>RDBMS: 验证数据库连接
+    API->>NoSQL: 验证数据库连接
+    API->>S3: 验证存储连接
+    API->>API: 加载配置参数
+    API->>API: 初始化线程池
+    API->>API: 启动WebSocket服务
+    API->>API: 系统就绪
